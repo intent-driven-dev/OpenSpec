@@ -18,9 +18,11 @@ need (add/remove/modify/rename a named requirement) are format-independent.
   for Markdown, or inline comment-marker style for other formats).
 - The delta parser, the spec discovery (no longer fixed to `spec.md`), and the
   block-splicing merge read these markers from the schema.
-- Markdown remains the **default** format: the built-in `spec-driven` schema carries
-  today's exact markers, so existing projects behave identically with **no
-  migration**. **Not breaking.**
+- Markdown remains the **default** format: the `format` block is optional and its
+  absence resolves to today's Markdown markers, so existing projects *and* existing
+  user-forked schemas behave identically with **no migration**. **Not breaking.**
+- A worked "bring your own format" example (Gherkin `.feature`) is documented and
+  shipped as an executable test fixture.
 
 ## Capabilities
 

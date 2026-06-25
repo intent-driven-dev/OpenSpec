@@ -21,7 +21,9 @@ without changing OpenSpec's code.
 ### Requirement: Markdown is the default spec format
 
 OpenSpec SHALL treat Markdown as the default spec format so that projects which do not
-declare a `format` behave exactly as before, with no migration required.
+declare a `format` behave exactly as before, with no migration required. A schema's
+`format` declaration SHALL be optional, and its absence SHALL select the Markdown
+markers.
 
 #### Scenario: Project without a declared format
 - **WHEN** a change resolves to the built-in default schema and no custom `format`
@@ -29,6 +31,11 @@ declare a `format` behave exactly as before, with no migration required.
 - **THEN** OpenSpec recognizes `### Requirement:`, `#### Scenario:`, and
   `## ADDED/MODIFIED/REMOVED/RENAMED Requirements` in `spec.md` files exactly as it
   did before this change
+
+#### Scenario: Any schema that omits a format falls back to Markdown
+- **WHEN** a change resolves to a schema (including a user-forked schema) that does
+  not declare a `format`
+- **THEN** OpenSpec uses the Markdown markers for that change's specs
 
 #### Scenario: Existing Markdown specs are unaffected
 - **WHEN** existing Markdown specs are validated, applied, or archived after this

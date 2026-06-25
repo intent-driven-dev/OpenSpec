@@ -55,8 +55,12 @@ format:
     rename:   '@openspec:\s*RENAMED\s+from="(?<from>[^"]+)"\s+to="(?<to>[^"]+)"'
 ```
 
-The built-in `spec-driven` schema ships the Markdown values above, so the default is
-byte-identical to today.
+The `format` block is **optional**. When a schema omits it, OpenSpec resolves to the
+built-in Markdown markers. This is the backward-compatibility guarantee: existing
+repos *and* every user-forked schema already in the wild (created via
+`openspec schema fork`/`init`, none of which carry a `format` block) keep working
+unchanged. The built-in `spec-driven` schema declares the Markdown values above
+explicitly, only as living documentation of the default.
 
 *Why over alternatives:* A new top-level config/registry would duplicate machinery
 that the schema already provides (per-change resolution, project/user/builtin
@@ -90,6 +94,46 @@ If `format.scenario` is present, the "every requirement has ≥1 scenario" check
 as today. If omitted, the format runs in opaque-payload mode and the check is skipped
 (a requirement is valid when it is named and has a non-empty body).
 
+### 6. Identity may come from native structure — worked example
+The `requirement` pattern can capture a name from the format's own construct, so a
+format need not add a comment just to identify a requirement — only the delta
+*operation* needs a marker. A user scaffolds the schema with
+`openspec schema fork spec-driven gherkin` (lands in `openspec/schemas/gherkin/`) and
+adds:
+
+```yaml
+# openspec/schemas/gherkin/schema.yaml — the new format block
+format:
+  extension: ".feature"
+  requirement: '^\s*Rule:\s*(?<name>.+)$'        # identity from native Gherkin Rule
+  scenario:    '^\s*Scenario:'
+  delta:
+    marker:  '@openspec:\s*(?<op>ADDED|MODIFIED|REMOVED|RENAMED)'
+    rename:  '@openspec:\s*RENAMED\s+from="(?<from>[^"]+)"\s+to="(?<to>[^"]+)"'
+```
+
+A delta authored in that format (`specs/user-auth/spec.feature`):
+
+```gherkin
+Feature: User authentication
+
+  # @openspec: ADDED
+  Rule: Email must be verified before login
+    Scenario: Unverified user is blocked
+      Given an account with an unverified email
+      When the user attempts to log in
+      Then access is denied
+
+  # @openspec: REMOVED
+  Rule: Security questions for recovery
+```
+
+Block rule for the inline dialect: a requirement block starts at a `requirement`
+match and runs to the next one; its operation is the nearest `delta.marker` between
+the previous requirement and this one (none ⇒ error — every delta block needs an op).
+`# @openspec: …` works because the engine scans the line for the sentinel and ignores
+the `#`. The change selects this schema via `.openspec.yaml` (`schema: gherkin`).
+
 ## Risks / Trade-offs
 
 - [Regex authored in schema is malformed] → Validate `format` patterns at schema-load
@@ -107,10 +151,15 @@ as today. If omitted, the format runs in opaque-payload mode and the check is sk
 
 ## Migration Plan
 
-No migration. Existing projects use the default `spec-driven` schema whose `format`
-block reproduces current behavior. Adopting a new format is purely additive: author a
-schema with a `format` block and select it via `.openspec.yaml`. Rollback is removing
-the `format` block / custom schema.
+No migration. `format` is optional and absent ⇒ Markdown defaults, so existing
+projects and existing user-forked schemas are untouched. Adopting a new format is
+purely additive: add a `format` block to a schema and select it via `.openspec.yaml`.
+Rollback is removing the `format` block / custom schema.
+
+Backward-compatibility is enforced, not assumed: a characterization test parses the
+repo's own spec corpus (`openspec/specs/**`, ~37 capabilities) and snapshots the
+requirement/scenario set, and a golden test asserts a Markdown delta apply/archive is
+byte-identical to pre-change output.
 
 ## Open Questions
 

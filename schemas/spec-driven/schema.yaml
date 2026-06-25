@@ -151,3 +151,13 @@ apply:
   instruction: |
     Read context files, work through pending tasks, mark complete as you go.
     Pause if you hit blockers or need clarification.
+
+format:
+  extension: ".md"
+  requirement: '^###\s+Requirement:\s*(?<name>.+)$'
+  scenario: '^####\s+Scenario:'
+  delta:
+    added: '^##\s+ADDED Requirements'
+    modified: '^##\s+MODIFIED Requirements'
+    removed: '^##\s+REMOVED Requirements'
+    renamed: '^##\s+RENAMED Requirements'

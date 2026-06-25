@@ -1,7 +1,4 @@
-const REQUIREMENTS_SECTION_HEADER = /^##\s+Requirements\s*$/i;
-const TOP_LEVEL_SECTION_HEADER = /^##\s+/;
-const DELTA_HEADER = /^##\s+(ADDED|MODIFIED|REMOVED|RENAMED)\s+Requirements\s*$/i;
-const REQUIREMENT_HEADER = /^###\s+Requirement:\s*(.+)\s*$/i;
+import { MARKDOWN_FORMAT_MARKERS, type FormatMarkers } from '../artifact-graph/format-markers.js';
 
 export interface MainSpecStructureIssue {
   kind: 'delta-header' | 'requirement-outside-requirements';
@@ -10,18 +7,28 @@ export interface MainSpecStructureIssue {
   message: string;
 }
 
-export function findMainSpecStructureIssues(content: string): MainSpecStructureIssue[] {
+export function findMainSpecStructureIssues(
+  content: string,
+  markers: FormatMarkers = MARKDOWN_FORMAT_MARKERS
+): MainSpecStructureIssue[] {
   const normalized = content.replace(/\r\n?/g, '\n');
   const stripped = stripFencedCodeBlocksPreservingLines(normalized);
   const lines = stripped.split('\n');
   const issues: MainSpecStructureIssue[] = [];
 
-  const requirementsHeaderIndex = lines.findIndex(line => REQUIREMENTS_SECTION_HEADER.test(line));
+  // For inline-dialect formats, requirements are top-level and there is no
+  // ## Requirements section — skip the section-containment check.
+  if (markers.delta.type === 'inline') {
+    return issues;
+  }
+
+  const delta = markers.delta;
+  const requirementsHeaderIndex = lines.findIndex(line => /^##\s+Requirements\s*$/i.test(line));
   let requirementsEndIndex = lines.length;
 
   if (requirementsHeaderIndex !== -1) {
     for (let i = requirementsHeaderIndex + 1; i < lines.length; i++) {
-      if (TOP_LEVEL_SECTION_HEADER.test(lines[i])) {
+      if (/^##\s+/.test(lines[i])) {
         requirementsEndIndex = i;
         break;
       }
@@ -35,20 +42,27 @@ export function findMainSpecStructureIssues(content: string): MainSpecStructureI
       continue;
     }
 
-    if (DELTA_HEADER.test(line)) {
+    // Check for delta headers (ADDED/MODIFIED/REMOVED/RENAMED sections)
+    const isDeltaHeader =
+      delta.addedRegex.test(line) ||
+      delta.modifiedRegex.test(line) ||
+      delta.removedRegex.test(line) ||
+      delta.renamedRegex.test(line);
+
+    if (isDeltaHeader) {
       issues.push({
         kind: 'delta-header',
         line: i + 1,
         header: trimmed,
         message:
           `Main spec contains delta header "${trimmed}". ` +
-          'Delta headers are only valid inside openspec/changes/<name>/specs/<capability>/spec.md ' +
+          `Delta headers are only valid inside openspec/changes/<name>/specs/<capability>/spec${markers.extension} ` +
           'and truncate the parsed ## Requirements section.',
       });
       continue;
     }
 
-    const requirementMatch = line.match(REQUIREMENT_HEADER);
+    const requirementMatch = line.match(markers.requirementRegex);
     if (!requirementMatch) {
       continue;
     }

@@ -18,6 +18,23 @@ import {
   writeUpdatedSpec,
   type SpecUpdate,
 } from './specs-apply.js';
+import { resolveFormatMarkers, type FormatMarkers } from './artifact-graph/format-markers.js';
+import { resolveSchema } from './artifact-graph/resolver.js';
+import { resolveSchemaForChange } from '../utils/change-metadata.js';
+
+function hasDeltaContent(content: string, markers: FormatMarkers): boolean {
+  const normalized = content.replace(/\r\n?/g, '\n');
+  if (markers.delta.type === 'section') {
+    return (
+      markers.delta.addedRegex.test(normalized) ||
+      markers.delta.modifiedRegex.test(normalized) ||
+      markers.delta.removedRegex.test(normalized) ||
+      markers.delta.renamedRegex.test(normalized)
+    );
+  }
+  // Inline dialect
+  return markers.delta.markerRegex.test(normalized);
+}
 
 async function listActiveChangeNames(changesDir: string): Promise<string[]> {
   try {
@@ -217,6 +234,7 @@ export class ArchiveCommand {
     }
 
     const changeDir = path.join(changesDir, changeName);
+    const projectRoot = root.path;
 
     // Verify change exists
     try {
@@ -233,6 +251,11 @@ export class ArchiveCommand {
           : `Change '${changeName}' not found. No active changes exist in this root.`
       );
     }
+
+    // Resolve format markers from the change's schema
+    const schemaName = resolveSchemaForChange(changeDir, undefined, projectRoot, { metadata: null });
+    const schema = resolveSchema(schemaName, projectRoot);
+    const changeMarkers = resolveFormatMarkers(schema);
 
     const skipValidation = options.validate === false || options.noValidate === true;
 
@@ -262,16 +285,17 @@ export class ArchiveCommand {
 
       // Validate delta-formatted spec files under the change directory if present
       const changeSpecsDir = path.join(changeDir, 'specs');
+      const specFilename = `spec${changeMarkers.extension}`;
       let hasDeltaSpecs = false;
       try {
         const candidates = await fs.readdir(changeSpecsDir, { withFileTypes: true });
         for (const c of candidates) {
           if (c.isDirectory()) {
             try {
-              const candidatePath = path.join(changeSpecsDir, c.name, 'spec.md');
+              const candidatePath = path.join(changeSpecsDir, c.name, specFilename);
               await fs.access(candidatePath);
               const content = await fs.readFile(candidatePath, 'utf-8');
-              if (/^##\s+(ADDED|MODIFIED|REMOVED|RENAMED)\s+Requirements/m.test(content)) {
+              if (hasDeltaContent(content, changeMarkers)) {
                 hasDeltaSpecs = true;
                 break;
               }
@@ -379,7 +403,7 @@ export class ArchiveCommand {
       }
     } else {
       // Find specs to update
-      const specUpdates = await findSpecUpdates(changeDir, mainSpecsDir);
+      const specUpdates = await findSpecUpdates(changeDir, mainSpecsDir, changeMarkers);
 
       if (specUpdates.length > 0) {
         if (!json) {
@@ -415,7 +439,7 @@ export class ArchiveCommand {
           const prepared: Array<{ update: SpecUpdate; rebuilt: string; counts: { added: number; modified: number; removed: number; renamed: number } }> = [];
           try {
             for (const update of specUpdates) {
-              const built = await buildUpdatedSpec(update, changeName!, { silent: json });
+              const built = await buildUpdatedSpec(update, changeName!, { silent: json, markers: changeMarkers });
               prepared.push({ update, rebuilt: built.rebuilt, counts: built.counts });
             }
           } catch (err: any) {

@@ -13,6 +13,7 @@ import {
 import { parseDeltaSpec, normalizeRequirementName } from '../parsers/requirement-blocks.js';
 import { findMainSpecStructureIssues } from '../parsers/spec-structure.js';
 import { FileSystemUtils } from '../../utils/file-system.js';
+import { MARKDOWN_FORMAT_MARKERS, type FormatMarkers } from '../artifact-graph/format-markers.js';
 
 export class Validator {
   private strictMode: boolean;
@@ -112,9 +113,13 @@ export class Validator {
    * - RENAMED: pairs well-formed
    * - No duplicates within sections; no cross-section conflicts per spec
    */
-  async validateChangeDeltaSpecs(changeDir: string): Promise<ValidationReport> {
+  async validateChangeDeltaSpecs(
+    changeDir: string,
+    markers: FormatMarkers = MARKDOWN_FORMAT_MARKERS
+  ): Promise<ValidationReport> {
     const issues: ValidationIssue[] = [];
     const specsDir = path.join(changeDir, 'specs');
+    const specFilename = `spec${markers.extension}`;
     let totalDeltas = 0;
     const missingHeaderSpecs: string[] = [];
     const emptySectionSpecs: Array<{ path: string; sections: string[] }> = [];
@@ -124,7 +129,7 @@ export class Validator {
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
         const specName = entry.name;
-        const specFile = path.join(specsDir, specName, 'spec.md');
+        const specFile = path.join(specsDir, specName, specFilename);
         let content: string | undefined;
         try {
           content = await fs.readFile(specFile, 'utf-8');
@@ -132,13 +137,13 @@ export class Validator {
           continue;
         }
 
-        const plan = parseDeltaSpec(content);
-        const entryPath = `${specName}/spec.md`;
+        const plan = parseDeltaSpec(content, markers);
+        const entryPath = `${specName}/${specFilename}`;
         const sectionNames: string[] = [];
-        if (plan.sectionPresence.added) sectionNames.push('## ADDED Requirements');
-        if (plan.sectionPresence.modified) sectionNames.push('## MODIFIED Requirements');
-        if (plan.sectionPresence.removed) sectionNames.push('## REMOVED Requirements');
-        if (plan.sectionPresence.renamed) sectionNames.push('## RENAMED Requirements');
+        if (plan.sectionPresence.added) sectionNames.push('ADDED');
+        if (plan.sectionPresence.modified) sectionNames.push('MODIFIED');
+        if (plan.sectionPresence.removed) sectionNames.push('REMOVED');
+        if (plan.sectionPresence.renamed) sectionNames.push('RENAMED');
         const hasSections = sectionNames.length > 0;
         const hasEntries = plan.added.length + plan.modified.length + plan.removed.length + plan.renamed.length > 0;
         if (!hasEntries) {
@@ -161,15 +166,17 @@ export class Validator {
           } else {
             addedNames.add(key);
           }
-          const requirementText = this.extractRequirementText(block.raw);
+          const requirementText = this.extractRequirementText(block.raw, markers);
           if (!requirementText) {
             issues.push({ level: 'ERROR', path: entryPath, message: `ADDED "${block.name}" is missing requirement text` });
           } else if (!this.containsShallOrMust(requirementText)) {
             issues.push({ level: 'ERROR', path: entryPath, message: this.buildMissingShallOrMustMessage('ADDED', block.name) });
           }
-          const scenarioCount = this.countScenarios(block.raw);
-          if (scenarioCount < 1) {
-            issues.push({ level: 'ERROR', path: entryPath, message: `ADDED "${block.name}" must include at least one scenario` });
+          if (markers.scenarioRegex) {
+            const scenarioCount = this.countScenarios(block.raw, markers);
+            if (scenarioCount < 1) {
+              issues.push({ level: 'ERROR', path: entryPath, message: `ADDED "${block.name}" must include at least one scenario` });
+            }
           }
         }
 
@@ -182,15 +189,17 @@ export class Validator {
           } else {
             modifiedNames.add(key);
           }
-          const requirementText = this.extractRequirementText(block.raw);
+          const requirementText = this.extractRequirementText(block.raw, markers);
           if (!requirementText) {
             issues.push({ level: 'ERROR', path: entryPath, message: `MODIFIED "${block.name}" is missing requirement text` });
           } else if (!this.containsShallOrMust(requirementText)) {
             issues.push({ level: 'ERROR', path: entryPath, message: this.buildMissingShallOrMustMessage('MODIFIED', block.name) });
           }
-          const scenarioCount = this.countScenarios(block.raw);
-          if (scenarioCount < 1) {
-            issues.push({ level: 'ERROR', path: entryPath, message: `MODIFIED "${block.name}" must include at least one scenario` });
+          if (markers.scenarioRegex) {
+            const scenarioCount = this.countScenarios(block.raw, markers);
+            if (scenarioCount < 1) {
+              issues.push({ level: 'ERROR', path: entryPath, message: `MODIFIED "${block.name}" must include at least one scenario` });
+            }
           }
         }
 
@@ -255,14 +264,14 @@ export class Validator {
       issues.push({
         level: 'ERROR',
         path: specPath,
-        message: `Delta sections ${this.formatSectionList(sections)} were found, but no requirement entries parsed. Ensure each section includes at least one "### Requirement:" block (REMOVED may use bullet list syntax).`,
+        message: `Delta sections ${this.formatSectionList(sections)} were found, but no requirement entries parsed. Ensure each section includes at least one requirement block.`,
       });
     }
     for (const path of missingHeaderSpecs) {
       issues.push({
         level: 'ERROR',
         path,
-        message: 'No delta sections found. Add headers such as "## ADDED Requirements" or move non-delta notes outside specs/.',
+        message: 'No delta sections found. Add delta operation markers or move non-delta notes outside specs/.',
       });
     }
 
@@ -412,7 +421,7 @@ export class Validator {
     return report.valid;
   }
 
-  private extractRequirementText(blockRaw: string): string | undefined {
+  private extractRequirementText(blockRaw: string, markers: FormatMarkers = MARKDOWN_FORMAT_MARKERS): string | undefined {
     const lines = blockRaw.split('\n');
     // Skip header line (index 0)
     let i = 1;
@@ -421,8 +430,8 @@ export class Validator {
     for (; i < lines.length; i++) {
       const line = lines[i];
 
-      // Stop at scenario headers
-      if (/^####\s+/.test(line)) break;
+      // Stop at scenario headers (if format declares a scenario marker)
+      if (markers.scenarioRegex && markers.scenarioRegex.test(line)) break;
 
       const trimmed = line.trim();
 
@@ -462,9 +471,10 @@ export class Validator {
     return base;
   }
 
-  private countScenarios(blockRaw: string): number {
-    const matches = blockRaw.match(/^####\s+/gm);
-    return matches ? matches.length : 0;
+  private countScenarios(blockRaw: string, markers: FormatMarkers = MARKDOWN_FORMAT_MARKERS): number {
+    if (!markers.scenarioRegex) return 0;
+    const lines = blockRaw.split('\n');
+    return lines.filter(l => markers.scenarioRegex!.test(l)).length;
   }
 
   private formatSectionList(sections: string[]): string {

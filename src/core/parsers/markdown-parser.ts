@@ -1,4 +1,5 @@
 import { Spec, Change, Requirement, Scenario, Delta, DeltaOperation } from '../schemas/index.js';
+import { MARKDOWN_FORMAT_MARKERS, type FormatMarkers } from '../artifact-graph/format-markers.js';
 
 export interface Section {
   level: number;
@@ -10,13 +11,13 @@ export interface Section {
 export class MarkdownParser {
   private lines: string[];
   private codeFenceLineMask: boolean[];
-  private currentLine: number;
+  protected formatMarkers: FormatMarkers;
 
-  constructor(content: string) {
+  constructor(content: string, formatMarkers: FormatMarkers = MARKDOWN_FORMAT_MARKERS) {
     const normalized = MarkdownParser.normalizeContent(content);
     this.lines = normalized.split('\n');
     this.codeFenceLineMask = MarkdownParser.buildCodeFenceMask(this.lines);
-    this.currentLine = 0;
+    this.formatMarkers = formatMarkers;
   }
 
   protected static normalizeContent(content: string): string {
@@ -197,17 +198,17 @@ export class MarkdownParser {
 
   protected parseRequirements(section: Section): Requirement[] {
     const requirements: Requirement[] = [];
-    
+
     for (const child of section.children) {
       // Extract requirement text from first non-empty content line, fall back to heading
       let text = child.title;
-      
+
       // Get content before any child sections (scenarios)
       if (child.content.trim()) {
         // Split content into lines and find content before any child headers
         const lines = child.content.split('\n');
         const contentBeforeChildren: string[] = [];
-        
+
         for (const line of lines) {
           // Stop at child headers (scenarios start with ####)
           if (line.trim().startsWith('#')) {
@@ -215,7 +216,7 @@ export class MarkdownParser {
           }
           contentBeforeChildren.push(line);
         }
-        
+
         // Find first non-empty line
         const directContent = contentBeforeChildren.join('\n').trim();
         if (directContent) {
@@ -225,21 +226,27 @@ export class MarkdownParser {
           }
         }
       }
-      
+
+      // Only enforce scenario rigor when the format declares a scenario marker
       const scenarios = this.parseScenarios(child);
-      
+
       requirements.push({
         text,
         scenarios,
       });
     }
-    
+
     return requirements;
   }
 
   protected parseScenarios(requirementSection: Section): Scenario[] {
     const scenarios: Scenario[] = [];
-    
+
+    // When no scenario marker is declared, skip scenario parsing (opaque-payload mode)
+    if (!this.formatMarkers.scenarioRegex) {
+      return scenarios;
+    }
+
     for (const scenarioSection of requirementSection.children) {
       // Store the raw text content of the scenario section
       if (scenarioSection.content.trim()) {
@@ -248,7 +255,7 @@ export class MarkdownParser {
         });
       }
     }
-    
+
     return scenarios;
   }
 

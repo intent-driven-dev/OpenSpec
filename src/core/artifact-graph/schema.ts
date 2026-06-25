@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import { parse as parseYaml } from 'yaml';
-import { SchemaYamlSchema, type SchemaYaml, type Artifact } from './types.js';
+import { SchemaYamlSchema, type SchemaYaml, type Artifact, type SchemaFormat } from './types.js';
 
 export class SchemaValidationError extends Error {
   constructor(message: string) {
@@ -31,6 +31,11 @@ export function parseSchema(yamlContent: string): SchemaYaml {
   }
 
   const schema = result.data;
+
+  // Validate format block if present
+  if (schema.format) {
+    validateFormatBlock(schema.format);
+  }
 
   // Check for duplicate artifact IDs
   validateNoDuplicateIds(schema.artifacts);
@@ -71,6 +76,54 @@ function validateRequiresReferences(artifacts: Artifact[]): void {
         );
       }
     }
+  }
+}
+
+/**
+ * Validates the format block: each pattern must be a valid regex and must
+ * contain the expected named captures.
+ */
+function validateFormatBlock(format: SchemaFormat): void {
+  function compileOrThrow(pattern: string, field: string): RegExp {
+    try {
+      return new RegExp(pattern);
+    } catch {
+      throw new SchemaValidationError(
+        `format.${field}: pattern "${pattern}" is not a valid regular expression`
+      );
+    }
+  }
+
+  function requireNamedGroup(regex: RegExp, groupName: string, field: string): void {
+    // Test named capture by running against a dummy string and checking groups key
+    const source = regex.source;
+    if (!source.includes(`(?<${groupName}>`)) {
+      throw new SchemaValidationError(
+        `format.${field}: pattern must include a named capture (?<${groupName}>...)`
+      );
+    }
+  }
+
+  const reqRegex = compileOrThrow(format.requirement, 'requirement');
+  requireNamedGroup(reqRegex, 'name', 'requirement');
+
+  if (format.scenario !== undefined) {
+    compileOrThrow(format.scenario, 'scenario');
+  }
+
+  if ('marker' in format.delta) {
+    // Inline dialect
+    const markerRegex = compileOrThrow(format.delta.marker, 'delta.marker');
+    requireNamedGroup(markerRegex, 'op', 'delta.marker');
+    const renameRegex = compileOrThrow(format.delta.rename, 'delta.rename');
+    requireNamedGroup(renameRegex, 'from', 'delta.rename');
+    requireNamedGroup(renameRegex, 'to', 'delta.rename');
+  } else {
+    // Section dialect
+    compileOrThrow(format.delta.added, 'delta.added');
+    compileOrThrow(format.delta.modified, 'delta.modified');
+    compileOrThrow(format.delta.removed, 'delta.removed');
+    compileOrThrow(format.delta.renamed, 'delta.renamed');
   }
 }
 

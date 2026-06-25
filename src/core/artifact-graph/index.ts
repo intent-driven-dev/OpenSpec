@@ -11,6 +11,16 @@ export {
 // Schema loading and validation
 export { loadSchema, parseSchema, SchemaValidationError } from './schema.js';
 
+// Format markers
+export {
+  resolveFormatMarkers,
+  MARKDOWN_FORMAT_MARKERS,
+  type FormatMarkers,
+  type FormatDeltaSectionResolved,
+  type FormatDeltaInlineResolved,
+  type FormatDeltaResolved,
+} from './format-markers.js';
+
 // Graph operations
 export { ArtifactGraph } from './graph.js';
 

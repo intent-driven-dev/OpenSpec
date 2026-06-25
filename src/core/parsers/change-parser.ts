@@ -1,19 +1,14 @@
 import { MarkdownParser, Section } from './markdown-parser.js';
-import { Change, Delta, DeltaOperation, Requirement } from '../schemas/index.js';
+import { Change, Delta, DeltaOperation } from '../schemas/index.js';
 import path from 'path';
 import { promises as fs } from 'fs';
-
-interface DeltaSection {
-  operation: DeltaOperation;
-  requirements: Requirement[];
-  renames?: Array<{ from: string; to: string }>;
-}
+import { MARKDOWN_FORMAT_MARKERS, type FormatMarkers } from '../artifact-graph/format-markers.js';
 
 export class ChangeParser extends MarkdownParser {
   private changeDir: string;
 
-  constructor(content: string, changeDir: string) {
-    super(content);
+  constructor(content: string, changeDir: string, formatMarkers: FormatMarkers = MARKDOWN_FORMAT_MARKERS) {
+    super(content, formatMarkers);
     this.changeDir = changeDir;
   }
 
@@ -62,7 +57,7 @@ export class ChangeParser extends MarkdownParser {
         if (!dir.isDirectory()) continue;
         
         const specName = dir.name;
-        const specFile = path.join(specsDir, specName, 'spec.md');
+        const specFile = path.join(specsDir, specName, `spec${this.formatMarkers.extension}`);
         
         try {
           const content = await fs.readFile(specFile, 'utf-8');

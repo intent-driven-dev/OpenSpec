@@ -1,0 +1,35 @@
+name: gherkin
+version: 1
+description: Gherkin .feature format — requirements as Rule blocks, deltas via inline @openspec markers
+artifacts:
+  - id: proposal
+    generates: proposal.md
+    description: Initial proposal document
+    template: proposal.md
+    requires: []
+
+  - id: specs
+    generates: "specs/**/*.feature"
+    description: Gherkin feature specs
+    template: spec.feature
+    requires:
+      - proposal
+
+  - id: tasks
+    generates: tasks.md
+    description: Implementation checklist
+    template: tasks.md
+    requires:
+      - specs
+
+apply:
+  requires: [tasks]
+  tracks: tasks.md
+
+format:
+  extension: ".feature"
+  requirement: '^\s*Rule:\s*(?<name>.+)$'
+  scenario: '^\s*Scenario:'
+  delta:
+    marker: '@openspec:\s*(?<op>ADDED|MODIFIED|REMOVED|RENAMED)'
+    rename: '@openspec:\s*RENAMED\s+from="(?<from>[^"]+)"\s+to="(?<to>[^"]+)"'

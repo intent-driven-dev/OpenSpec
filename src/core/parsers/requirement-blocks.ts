@@ -1,4 +1,5 @@
 import { MARKDOWN_FORMAT_MARKERS, type FormatMarkers } from '../artifact-graph/format-markers.js';
+import { buildCodeFenceMask } from './requirement-text.js';
 
 export interface RequirementBlock {
   headerLine: string; // e.g., '### Requirement: Something'
@@ -150,11 +151,23 @@ function extractRequirementsSectionInline(
   };
 }
 
+/**
+ * A level-3 header inside `## ADDED`/`## MODIFIED Requirements` that is not a
+ * canonical `### Requirement:` header, recorded at the moment the delta reader
+ * skips over it. Surfaced as an INFO note by `validate <change>` (#498).
+ */
+export interface SkippedHeader {
+  header: string; // header text without the leading ###
+  section: string; // the ## section title as written
+  line: number; // 1-based line number in the delta file
+}
+
 export interface DeltaPlan {
   added: RequirementBlock[];
   modified: RequirementBlock[];
   removed: string[]; // requirement names
   renamed: Array<{ from: string; to: string }>;
+  skippedHeaders: SkippedHeader[]; // non-canonical ### headers the reader skipped
   sectionPresence: {
     added: boolean;
     modified: boolean;
@@ -194,15 +207,26 @@ function parseDeltaSpecSection(
   const modifiedLookup = sections.modified;
   const removedLookup = sections.removed;
   const renamedLookup = sections.renamed;
-  const added = parseRequirementBlocksFromSection(addedLookup.body, markers);
-  const modified = parseRequirementBlocksFromSection(modifiedLookup.body, markers);
+  const skippedHeaders: SkippedHeader[] = [];
+  const added = parseRequirementBlocksFromSection(addedLookup.body, markers, {
+    section: addedLookup.title,
+    bodyStartLine: addedLookup.bodyStartLine,
+    sink: skippedHeaders,
+  });
+  const modified = parseRequirementBlocksFromSection(modifiedLookup.body, markers, {
+    section: modifiedLookup.title,
+    bodyStartLine: modifiedLookup.bodyStartLine,
+    sink: skippedHeaders,
+  });
   const removedNames = parseRemovedNames(removedLookup.body, markers);
   const renamedPairs = parseRenamedPairs(renamedLookup.body, markers);
+  skippedHeaders.sort((a, b) => a.line - b.line);
   return {
     added,
     modified,
     removed: removedNames,
     renamed: renamedPairs,
+    skippedHeaders,
     sectionPresence: {
       added: addedLookup.found,
       modified: modifiedLookup.found,
@@ -300,6 +324,8 @@ function parseDeltaSpecInline(
     modified,
     removed,
     renamed,
+    // Inline formats have no `###` divider concept to skip over
+    skippedHeaders: [],
     sectionPresence: {
       added: hasAdded,
       modified: hasModified,
@@ -312,6 +338,8 @@ function parseDeltaSpecInline(
 interface SectionLookup {
   body: string;
   found: boolean;
+  title: string; // the section header text as written (for skipped-header notes)
+  bodyStartLine: number; // 1-based line number of the first body line
 }
 
 interface SectionMap {
@@ -327,10 +355,10 @@ function splitTopLevelSectionsByRegex(
 ): SectionMap {
   const lines = content.split('\n');
   const result: SectionMap = {
-    added: { body: '', found: false },
-    modified: { body: '', found: false },
-    removed: { body: '', found: false },
-    renamed: { body: '', found: false },
+    added: { body: '', found: false, title: 'ADDED Requirements', bodyStartLine: 0 },
+    modified: { body: '', found: false, title: 'MODIFIED Requirements', bodyStartLine: 0 },
+    removed: { body: '', found: false, title: 'REMOVED Requirements', bodyStartLine: 0 },
+    renamed: { body: '', found: false, title: 'RENAMED Requirements', bodyStartLine: 0 },
   };
 
   // Track which key each section maps to
@@ -348,7 +376,10 @@ function splitTopLevelSectionsByRegex(
     const current = indices[i];
     const next = indices[i + 1];
     const body = lines.slice(current.index + 1, next ? next.index : lines.length).join('\n');
-    result[current.key] = { body, found: true };
+    const headerLine = lines[current.index];
+    const title = headerLine.replace(/^##\s+/, '').trim() || headerLine.trim();
+    // First body line, 1-based: the header is at 0-based current.index.
+    result[current.key] = { body, found: true, title, bodyStartLine: current.index + 2 };
   }
 
   return result;
@@ -356,14 +387,35 @@ function splitTopLevelSectionsByRegex(
 
 function parseRequirementBlocksFromSection(
   sectionBody: string,
-  markers: FormatMarkers
+  markers: FormatMarkers,
+  skipped?: { section: string; bodyStartLine: number; sink: SkippedHeader[] }
 ): RequirementBlock[] {
   if (!sectionBody) return [];
   const lines = normalizeLineEndings(sectionBody).split('\n');
+  // Record the non-canonical level-3 headers this reader skips, at the moment
+  // it skips them, so the INFO note describes the reader's real boundaries.
+  // Fence-masked lines are excluded: the body reader treats them as fenced
+  // content, not as headers.
+  const fenceMask = skipped ? buildCodeFenceMask(lines) : undefined;
+  const recordIfSkippedHeader = (index: number) => {
+    if (!skipped || fenceMask![index]) return;
+    const h3 = lines[index].match(/^###\s+(.+?)\s*$/);
+    if (h3 && !markers.requirementRegex.test(lines[index])) {
+      skipped.sink.push({
+        header: h3[1].trim(),
+        section: skipped.section,
+        line: skipped.bodyStartLine + index,
+      });
+    }
+  };
   const blocks: RequirementBlock[] = [];
   let i = 0;
   while (i < lines.length) {
-    while (i < lines.length && !markers.requirementRegex.test(lines[i])) i++;
+    // Seek next requirement header
+    while (i < lines.length && !markers.requirementRegex.test(lines[i])) {
+      recordIfSkippedHeader(i);
+      i++;
+    }
     if (i >= lines.length) break;
     const headerLine = lines[i];
     const m = headerLine.match(markers.requirementRegex);
@@ -376,6 +428,7 @@ function parseRequirementBlocksFromSection(
       !markers.requirementRegex.test(lines[i]) &&
       !/^##\s+/.test(lines[i])
     ) {
+      recordIfSkippedHeader(i);
       buf.push(lines[i]);
       i++;
     }

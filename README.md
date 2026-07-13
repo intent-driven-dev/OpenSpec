@@ -133,6 +133,7 @@ Both are in the default profile. If you want the expanded workflow (`/opsx:new`,
 → **[Concepts](docs/concepts.md)**: how it all fits<br>
 → **[Multi-Language](docs/multi-language.md)**: multi-language support<br>
 → **[Customization](docs/customization.md)**: make it yours<br>
+→ **[Spec format flexibility](docs/spec-format-flexibility.md)**: author specs in any format (Gherkin, etc.)<br>
 → **[FAQ](docs/faq.md)** · **[Troubleshooting](docs/troubleshooting.md)** · **[Glossary](docs/glossary.md)**: quick help
 
 

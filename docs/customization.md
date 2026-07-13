@@ -273,6 +273,80 @@ Path: /path/to/project/openspec/schemas/my-workflow
 
 ---
 
+## Spec Format (the `format` block)
+
+By default, OpenSpec specs are Markdown (`### Requirement:`, `#### Scenario:`, and
+`## ADDED/MODIFIED/REMOVED/RENAMED Requirements` headers). But a schema can declare a
+**`format` block** that tells OpenSpec how to recognize a spec's structure — so your specs
+can live in *any* text format that uses consistent markers. When the block is absent,
+OpenSpec falls back to the Markdown defaults, so existing projects and forked schemas need
+**no changes** (zero migration).
+
+A `format` block has four fields:
+
+```yaml
+# openspec/schemas/<name>/schema.yaml
+format:
+  extension: ".md"                                    # file extension for spec files
+  requirement: '^###\s+Requirement:\s*(?<name>.+)$'  # must capture named group 'name'
+  scenario:    '^####\s+Scenario:'                    # optional; when absent, scenario check is skipped
+  delta:                                              # how delta operations are marked (two dialects)
+    added:    '^##\s+ADDED Requirements'
+    modified: '^##\s+MODIFIED Requirements'
+    removed:  '^##\s+REMOVED Requirements'
+    renamed:  '^##\s+RENAMED Requirements'
+```
+
+Deltas come in two dialects: the **section** dialect above (operation determined by which
+`##` section a block sits under — the Markdown default), or the **inline-marker** dialect
+below (operation set by a marker line before each requirement), which suits non-Markdown
+formats.
+
+### Example: Gherkin `.feature` specs
+
+Declare an inline-marker `format` block whose requirement identity comes from Gherkin's
+native `Rule:` keyword:
+
+```yaml
+format:
+  extension: ".feature"
+  requirement: '^\s*Rule:\s*(?<name>.+)$'   # identity from native Gherkin Rule
+  scenario:    '^\s*Scenario:'
+  delta:
+    marker: '@openspec:\s*(?<op>ADDED|MODIFIED|REMOVED|RENAMED)'
+    rename: '@openspec:\s*RENAMED\s+from="(?<from>[^"]+)"\s+to="(?<to>[^"]+)"'
+```
+
+A delta spec then reads as ordinary Gherkin with a comment marker above each block — the
+engine scans each line for `@openspec:` and ignores the surrounding `#` comment punctuation:
+
+```gherkin
+  # @openspec: ADDED
+  Rule: Email must be verified before login
+    Scenario: Unverified user is blocked
+      Given an account with an unverified email address
+      When the user attempts to log in
+      Then access is denied
+```
+
+**Why `Rule:` and not `Feature:`?** Gherkin nests as `Feature:` → `Rule:` → `Scenario:`, so
+the keywords map onto OpenSpec concepts like this:
+
+| OpenSpec concept | Gherkin keyword | Notes |
+|---|---|---|
+| The spec **file** (a capability) | `Feature:` | one top-level container per file |
+| A **requirement** | `Rule:` | one business rule = one requirement (Gherkin 6+) |
+| A **scenario** | `Scenario:` | concrete example |
+
+Mapping a requirement to `Rule:` (rather than the file-level `Feature:`) is what lets one
+spec file hold many requirements.
+
+→ See **[Spec Format Flexibility](spec-format-flexibility.md)** for the full field reference
+(both delta dialects, validation, scenario rigor, backward compatibility), and
+**[Bring Your Own Format](spec-format-byo.md)** for the complete Gherkin walkthrough.
+
+---
+
 ## Examples
 
 ### Rapid Iteration Workflow
@@ -354,3 +428,5 @@ Community schemas are not vendored into OpenSpec core — they live in their own
 ## See Also
 
 - [CLI Reference: Schema Commands](cli.md#schema-commands) - Full command documentation
+- [Spec Format Flexibility](spec-format-flexibility.md) - The `format` block reference
+- [Bring Your Own Format](spec-format-byo.md) - A worked Gherkin `.feature` walkthrough

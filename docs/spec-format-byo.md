@@ -45,6 +45,12 @@ schema: gherkin
 
 ## 4. Write your main spec
 
+> **Why does a requirement map to `Rule:` and not `Feature:`?** Gherkin nests as
+> `Feature:` → `Rule:` → `Scenario:`. `Feature:` is the file-level container (one per
+> `.feature` file), so it maps to the OpenSpec **spec** (a capability). A `Rule:` — the
+> business-rule construct added in Gherkin 6 — maps to a single OpenSpec **requirement**,
+> which is what lets one spec file hold many requirements. `Scenario:` stays a scenario.
+
 A main spec (`openspec/specs/user-auth/spec.feature`):
 
 ```gherkin

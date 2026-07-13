@@ -67,6 +67,7 @@ That second one matters more than it looks. OpenSpec has two halves: a command l
 | Doc | What it gives you |
 |-----|-------------------|
 | [Customization](customization.md) | Project config, custom schemas, shared context |
+| [Spec Format Flexibility](spec-format-flexibility.md) | Author specs in any format (e.g. Gherkin); Markdown is the default |
 | [Multi-Language](multi-language.md) | Generate artifacts in languages other than English |
 | [Supported Tools](supported-tools.md) | The 25+ AI tools OpenSpec integrates with, and where files land |
 
